@@ -43,10 +43,10 @@ public:
 };
 
 // Grammar rules
+struct ws : one< ' ', '\t', '\n', '\r' > {};
 struct Identifier : plus<sor<alpha, one<'/'>>> {};
 struct String : seq<one<'"'>, plus<not_at<one<'"'>>, any>, one<'"'>> {};
 struct RelationName : seq<string<'r', 'e', 'l', 'a', 't', 'i', 'o', 'n', '/'>, plus<alnum, one<'-'>>> {};
-struct UseDecl : seq<string<'u', 's', 'e'>, space, RelationName, space, string<'A', 'S'>, space, Identifier> {};
 struct HasProperty : seq<Identifier, string<' ', 'h', 'a', 's'>, space, String, space, Identifier> {};
 struct TildeRelation : seq<Identifier, space, one<'~'>, Identifier, space, Identifier> {};
 struct PropertyCheck : seq<Identifier, one<'='>, String> {};
@@ -58,10 +58,18 @@ struct WithClause : seq<string<' ', 'W', 'I', 'T', 'H'>, space, PropertyPair, st
 struct ThenClause : seq<string<'t', 'h', 'e', 'n'>, space, string<'r', 'e', 'l', 'a', 't', 'e'>, one<'('>,
                        Identifier, one<','>, space, Identifier, one<','>, space, String, one<')'>,
                        opt<WithClause>> {};
-struct Rule : seq<string<'r', 'u', 'l', 'e'>, space, Identifier, space, one<'{'>, space, IfClause, space, ThenClause, space, one<'}'>> {};
-struct ContextDef : seq<string<'c', 'o', 'n', 't', 'e', 'x', 't'>, space, Identifier, space, one<'{'>, plus<Rule>, one<'}'>> {};
+
+struct UseDecl : seq<string<'u', 's', 'e'>, space, RelationName, space, string<'A', 'S'>, space, Identifier> {};
+
+struct Rule : seq<string<'r', 'u', 'l', 'e'>, space, Identifier, space, one<'{'>, space,
+              IfClause, space, ThenClause, space, one<'}'>> {};
+
+struct ContextDef : seq<string<'c', 'o', 'n', 't', 'e', 'x', 't'>,
+                        space, Identifier, space, one<'{'>, plus<Rule>, one<'}'>> {};
+
 struct RuleOrContext : sor<ContextDef, Rule> {};
-struct Grammar : seq<star<UseDecl, space>, plus<RuleOrContext>, eof> {};
+struct Definitions :   seq<star<UseDecl>, plus<RuleOrContext>> {};
+struct Grammar :  pad < Definitions, ws > {};
 
 // Actions
 struct RuleDef {
