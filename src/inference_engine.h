@@ -87,7 +87,7 @@ struct ThenClause : seq<string<'t', 'h', 'e', 'n'>, wsp, string<'r', 'e', 'l', '
 struct Rule : seq<string<'r', 'u', 'l', 'e'>, wsp, Identifier, wsp, one<'{'>, wsb, IfClause, wsb, ThenClause, wsb, one<'}'>> {};
 struct ContextDef : seq<string<'c', 'o', 'n', 't', 'e', 'x', 't'>, wsp, Identifier, wsp, one<'{'>, wsb, plus<Rule>, wsb, one<'}'>> {};
 struct RuleOrContext : sor<ContextDef, Rule> {};
-struct UseDecl : seq<string<'u', 's', 'e'>, wsp, TypeName, wsp, string<'A', 'S'>, wsp, Identifier, eol> {};
+struct UseDecl : seq<string<'u', 's', 'e'>, wsp, TypeName, wsp, string<'A', 'S'>, wsp, Identifier> {};
 
 struct Statement : sor< UseDecl, RuleOrContext > { };
 struct StatementList : plus<Statement, wsb >  { };
@@ -110,6 +110,9 @@ struct State {
     std::vector<ContextDefStruct> contexts;
     std::unordered_map<std::string, std::string> aliases;
     std::string currentBlock;
+    // for e.g. RULE definitions, we need to buffer nested conditions while the rule is still being parsed
+    // e.g. RULE ... IF ... THEN
+    RuleDef pendingRule;
 };
 
 template<typename Rule> struct Action : nothing<Rule> {};
@@ -119,8 +122,11 @@ template<> struct Action<UseDecl> {
     static void apply(const ActionInput& in, State& state) {
         std::string s = in.string();
         size_t asPos = s.find(" AS ");
-        state.aliases[s.substr(asPos + 4)] = s.substr(4, asPos - 4);
-        state.currentBlock = "use " + s.substr(4, asPos - 4);
+        std::string type  = s.substr(4, asPos - 4);
+        std::string alias = s.substr(asPos + 4);
+        std::cout << "USE alias '" << alias << "' for type '" << type << "'" << std::endl;
+        state.aliases[alias] = type;
+        state.currentBlock = "use " + alias;
     }
 };
 
@@ -129,11 +135,16 @@ template<> struct Action<Rule> {
     static void apply(const ActionInput& in, State& state) {
         RuleDef rule;
         rule.name = in.string().substr(5, in.string().find('{') - 6);
-        std::cout << "parsing rule " << rule.name << std::endl;
-
-        if (state.contexts.empty() || !state.contexts.back().mimeType.empty()) {
-            state.contexts.push_back({"", {}});
+        if (state.contexts.empty()) {
+            state.contexts.push_back({"", {}});  // Only if no contexts exist
         }
+        std::cout << "building rule '" << rule.name << "' with context '"
+                  << state.contexts.back().mimeType << "'" << std::endl;
+
+        // Move pending conditions into the rule
+        rule.conditions = std::move(state.pendingRule.conditions);
+        state.pendingRule.conditions.clear();  // Reset for next rule
+
         state.contexts.back().rules.push_back(rule);
         state.currentBlock = "rule " + rule.name;
     }
@@ -142,21 +153,21 @@ template<> struct Action<Rule> {
 template<> struct Action<HasProperty> {
     template<typename ActionInput>
     static void apply(const ActionInput& in, State& state) {
-        state.contexts.back().rules.back().conditions.push_back(in.string());
+        state.pendingRule.conditions.push_back(in.string());
     }
 };
 
 template<> struct Action<TildeRelation> {
     template<typename ActionInput>
     static void apply(const ActionInput& in, State& state) {
-        state.contexts.back().rules.back().conditions.push_back(in.string());
+        state.pendingRule.conditions.push_back(in.string());
     }
 };
 
 template<> struct Action<PropertyCheck> {
     template<typename ActionInput>
     static void apply(const ActionInput& in, State& state) {
-        state.contexts.back().rules.back().conditions.push_back(in.string());
+        state.pendingRule.conditions.push_back(in.string());
     }
 };
 
@@ -167,7 +178,7 @@ template<> struct Action<ThenClause> {
         size_t firstComma = s.find(',');
         size_t secondComma = s.find(',', firstComma + 1);
         size_t relEnd = s.find(')', secondComma);
-        auto& rule = state.contexts.back().rules.back();
+        auto& rule = state.pendingRule;
         rule.from = s.substr(11, firstComma - 11);
         rule.to = s.substr(firstComma + 2, secondComma - firstComma - 2);
         rule.relation = s.substr(secondComma + 2, relEnd - secondComma - 2);
@@ -179,11 +190,14 @@ template<> struct Action<ThenClause> {
             while (pos < withPart.length()) {
                 size_t eqPos = withPart.find('=', pos);
                 if (eqPos == std::string::npos) break;
+
                 std::string key = withPart.substr(pos, eqPos - pos);
                 size_t quoteStart = eqPos + 2;  // Skip ="
                 size_t quoteEnd = withPart.find('"', quoteStart);
+
                 std::string value = withPart.substr(quoteStart, quoteEnd - quoteStart);
                 rule.relProperties[key] = value;
+
                 pos = withPart.find(',', quoteEnd);
                 if (pos == std::string::npos) break;
                 pos += 2;  // Skip comma and space
@@ -197,9 +211,9 @@ template<> struct Action<ContextDef> {
     static void apply(const ActionInput& in, State& state) {
         ContextDefStruct context;
         context.mimeType = in.string().substr(8, in.string().find('{') - 9);
-        std::cout << "parsing context " << context.mimeType << std::endl;
+        std::cout << "parsing context '" << context.mimeType << "'" << std::endl;
 
-        state.contexts.emplace_back(context);   // todo: was push_back
+        state.contexts.push_back(context);
         state.currentBlock = "context " + context.mimeType;
     }
 };
@@ -228,7 +242,7 @@ public:
             std::cout << "Parsed " << state.contexts.size() << " contexts\n";
 
             for (const auto& ctx : state.contexts) {
-                std::cout << "Context: " << ctx.mimeType << ", Rules: " << ctx.rules.size() << "\n";
+                std::cout << "Context: '" << ctx.mimeType << "', Rules: " << ctx.rules.size() << std::endl;
             }
         } catch (const parse_error& e) {
             std::cerr << "Parse error: " << e.what() << "\n";
@@ -239,15 +253,16 @@ public:
     void loadFromSource(const std::string& sourceId) {
         std::unordered_set<std::string> loadedIds;
         loadEntityAndRelations(sourceId, 0, loadedIds);
-        std::cout << "Loaded " << kb.relations.size() << " relations\n";
+        std::cout << "Loaded " << kb.relations.size() << " relations" << std::endl;
     }
 
     void infer(const std::string& sourceMimeType) {
-        std::cout << "infer from type " << sourceMimeType.c_str() << std::endl;
+        std::cout << "infer from type " << sourceMimeType << std::endl;
         std::cout << "contexts:" << std::endl;
         for (const auto& context : state.contexts) {
-            std::cout << context.mimeType.c_str() << std::endl;
+            std::cout << context.mimeType << std::endl;
         }
+        std::cout << "Running inference engine..." << std::endl;
 
         for (const auto& context : state.contexts) {
             if (context.mimeType.empty() || context.mimeType == sourceMimeType) {
@@ -335,7 +350,7 @@ private:
     }
 
     void applyRule(const RuleDef& rule) {
-        std::cout << "Applying rule: " << rule.name << "\n";
+        std::cout << "evaluating rule: '" << rule.name << "'" << std::endl;
 
         for (const auto& e1 : kb.entities) {
             for (const auto& e2 : kb.entities) {
@@ -349,8 +364,13 @@ private:
                         std::string var1 = cond.substr(0, cond.find(' '));
                         std::string var2 = cond.substr(cond.rfind(' ') + 1);
 
+                        std::cout << "  checking with e1=" << e1.id << ", e2=" << e2.id
+                                  << ", relation=" << relType << ", var1=" << var1 << ", var2=" << var2 << std::endl;
+
                         bool found = false;
                         for (const auto& e : kb.entities) {
+                            std::cout << "    e=" << e.id << std::endl;
+
                             if (varMap.count(var1) && varMap.count(var2)) {
                                 if (checkRelation(varMap[var1], varMap[var2], relType, rule.conditions)) {
                                     found = true;
@@ -382,8 +402,13 @@ private:
                         std::string prop = extractQuoted(cond);
                         std::string var1 = cond.substr(0, cond.find(' '));
                         std::string var2 = cond.substr(cond.rfind(' ') + 1);
+
+                        std::cout << "    checking HAS with prop=" << prop << ", var1=" << var1 << ", var2=" << var2
+                                  << std::endl;
+
                         varMap[var1] = e1.id;
                         varMap[var2] = e2.id;
+
                         auto it = e1.properties.find(prop);
                         if (it == e1.properties.end() || (e2.id != it->second && var2 == it->second)) {
                             conditionsMet = false;
@@ -391,7 +416,7 @@ private:
                     }
                 }
 
-                if (conditionsMet) { // && varMap.count(rule.from) && varMap.count(rule.to)) {
+                if (conditionsMet && varMap.count(rule.from) && varMap.count(rule.to)) {
                     std::cout << "Inferred: " << varMap[rule.from] << " -> " << varMap[rule.to]
                               << " : " << rule.relation << " {";
                     for (const auto& [k, v] : rule.relProperties) {
