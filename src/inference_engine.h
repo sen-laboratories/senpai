@@ -11,6 +11,7 @@
 #include <iostream>
 
 #include <tao/pegtl/contrib/analyze.hpp>
+#include <tao/pegtl/contrib/trace.hpp>
 
 using namespace tao::pegtl;
 
@@ -45,26 +46,52 @@ public:
 };
 
 // Grammar rules accepting liberal whitespace use
-struct ws : one<' ', '\t', '\n', '\r'> {};  // Whitespace: space, tab, newline, carriage return
-struct Identifier : plus<sor<alpha, one<'/'>>> {};
+// A C++ style one-line comment. two consecutive slashes followed by anything up to the end of line or end of file.
+// line_comment <- '/' '/' .*
+struct line_comment :
+    seq< two< '/' >, until<eolf> >
+    { };
+
+// A single space or a line_comment.
+// ws <- space / line_comment
+struct ws :
+    sor< space/*, line_comment*/ >
+    { };
+
+// Zero or more spaces or line_comments
+// wss <- ws*
+struct wss :  star< ws > { };
+
+// At least one space or line_comment.
+// wsp <- ws+
+struct wsp : plus< ws > { };
+
+struct wsb : plus<sor<wsp, eol>> {};
+
+struct Special : one<'/','-', '_','.'> {};
+struct Identifier : plus<sor<alnum, Special> > {}; // could be a MIME type later
 struct String : seq<one<'"'>, plus<not_at<one<'"'>>, any>, one<'"'>> {};
-struct RelationName : seq<string<'r', 'e', 'l', 'a', 't', 'i', 'o', 'n', '/'>, plus<alnum, one<'-'>>> {};
-struct UseDecl : seq<string<'u', 's', 'e'>, plus<ws>, RelationName, plus<ws>, string<'A', 'S'>, plus<ws>, Identifier> {};
-struct HasProperty : seq<Identifier, plus<ws>, string<'h', 'a', 's'>, plus<ws>, String, plus<ws>, Identifier> {};
-struct TildeRelation : seq<Identifier, plus<ws>, one<'~'>, Identifier, plus<ws>, Identifier> {};
+struct TypeName : Identifier {};    // todo: check for valid MIME type
+struct HasProperty : seq<Identifier, wsp, string<'h', 'a', 's'>, wsp, String, wsp, Identifier> {};
+struct TildeRelation : seq<Identifier, wsp, one<'~'>, Identifier, wsp, Identifier> {};
 struct PropertyCheck : seq<Identifier, one<'='>, String> {};
 struct Condition : sor<HasProperty, TildeRelation> {};
-struct AndClause : seq<plus<ws>, string<'A', 'N', 'D'>, plus<ws>, sor<Condition, PropertyCheck>> {};
-struct IfClause : seq<string<'i', 'f'>, plus<ws>, one<'('>, star<ws>, Condition, star<AndClause>, star<ws>, one<')'>> {};
+struct AndClause : seq<plus<ws>, string<'A', 'N', 'D'>, wsp, sor<Condition, PropertyCheck>> {};
+struct IfClause : seq<string<'i', 'f'>, plus<ws>, one<'('>, wss, Condition, star<AndClause>, wss, one<')'>> {};
 struct PropertyPair : seq<Identifier, one<'='>, String> {};
 struct WithClause : seq<plus<ws>, string<'W', 'I', 'T', 'H'>, plus<ws>, PropertyPair, star<seq<one<','>, plus<ws>, PropertyPair>>> {};
-struct ThenClause : seq<string<'t', 'h', 'e', 'n'>, plus<ws>, string<'r', 'e', 'l', 'a', 't', 'e'>, star<ws>, one<'('>,
-                       Identifier, star<ws>, one<','>, star<ws>, Identifier, star<ws>, one<','>, star<ws>, String, star<ws>, one<')'>,
+struct ThenClause : seq<string<'t', 'h', 'e', 'n'>, wsp, string<'r', 'e', 'l', 'a', 't', 'e'>, wss, one<'('>,
+                       Identifier, star<ws>, one<','>, wss, Identifier, wss, one<','>, wss, String, wss, one<')'>,
                        opt<WithClause>> {};
-struct Rule : seq<string<'r', 'u', 'l', 'e'>, plus<ws>, Identifier, star<ws>, one<'{'>, star<ws>, IfClause, star<ws>, ThenClause, star<ws>, one<'}'>> {};
-struct ContextDef : seq<string<'c', 'o', 'n', 't', 'e', 'x', 't'>, plus<ws>, Identifier, star<ws>, one<'{'>, star<ws>, plus<Rule>, star<ws>, one<'}'>> {};
+
+struct Rule : seq<string<'r', 'u', 'l', 'e'>, wsp, Identifier, wsp, one<'{'>, wsb, IfClause, wsb, ThenClause, wsb, one<'}'>> {};
+struct ContextDef : seq<string<'c', 'o', 'n', 't', 'e', 'x', 't'>, wsp, Identifier, wsp, one<'{'>, wsb, plus<Rule>, wsb, one<'}'>> {};
 struct RuleOrContext : sor<ContextDef, Rule> {};
-struct Grammar : seq<star<sor<UseDecl, ws>>, star<ws>, plus<sor<RuleOrContext, ws>>, star<ws>, eof> {};
+struct UseDecl : seq<string<'u', 's', 'e'>, wsp, TypeName, wsp, string<'A', 'S'>, wsp, Identifier, eol> {};
+
+struct Statement : sor< UseDecl, RuleOrContext > { };
+struct StatementList : plus<Statement, wsb >  { };
+struct Grammar : seq< wsb, StatementList, eof > { };
 
 // Actions
 struct RuleDef {
@@ -172,7 +199,7 @@ template<> struct Action<ContextDef> {
         context.mimeType = in.string().substr(8, in.string().find('{') - 9);
         std::cout << "parsing context " << context.mimeType << std::endl;
 
-        state.contexts.push_back(context);
+        state.contexts.emplace_back(context);   // todo: was push_back
         state.currentBlock = "context " + context.mimeType;
     }
 };
@@ -185,6 +212,7 @@ class InferenceEngine {
 public:
     InferenceEngine(KnowledgeBase& knowledge, int depth = 2) : kb(knowledge), maxDepth(depth) {
         maxDepth = depth;
+        kb = knowledge;
     }
 
     void loadDSL(const std::string& dsl) {
@@ -195,6 +223,7 @@ public:
                 exit(1);
             }
 
+            //complete_trace<Grammar>(memory_input(dsl, "DSL"), state);
             parse<Grammar, Action>(memory_input(dsl, "DSL"), state);
             std::cout << "Parsed " << state.contexts.size() << " contexts\n";
 
