@@ -10,6 +10,8 @@
 #include <sstream>
 #include <iostream>
 
+#include <tao/pegtl/contrib/analyze.hpp>
+
 using namespace tao::pegtl;
 
 struct Entity {
@@ -42,34 +44,27 @@ public:
     }
 };
 
-// Grammar rules
-struct ws : one< ' ', '\t', '\n', '\r' > {};
+// Grammar rules accepting liberal whitespace use
+struct ws : one<' ', '\t', '\n', '\r'> {};  // Whitespace: space, tab, newline, carriage return
 struct Identifier : plus<sor<alpha, one<'/'>>> {};
 struct String : seq<one<'"'>, plus<not_at<one<'"'>>, any>, one<'"'>> {};
 struct RelationName : seq<string<'r', 'e', 'l', 'a', 't', 'i', 'o', 'n', '/'>, plus<alnum, one<'-'>>> {};
-struct HasProperty : seq<Identifier, string<' ', 'h', 'a', 's'>, space, String, space, Identifier> {};
-struct TildeRelation : seq<Identifier, space, one<'~'>, Identifier, space, Identifier> {};
+struct UseDecl : seq<string<'u', 's', 'e'>, plus<ws>, RelationName, plus<ws>, string<'A', 'S'>, plus<ws>, Identifier> {};
+struct HasProperty : seq<Identifier, plus<ws>, string<'h', 'a', 's'>, plus<ws>, String, plus<ws>, Identifier> {};
+struct TildeRelation : seq<Identifier, plus<ws>, one<'~'>, Identifier, plus<ws>, Identifier> {};
 struct PropertyCheck : seq<Identifier, one<'='>, String> {};
 struct Condition : sor<HasProperty, TildeRelation> {};
-struct AndClause : seq<string<' ', 'A', 'N', 'D'>, space, sor<Condition, PropertyCheck>> {};
-struct IfClause : seq<string<'i', 'f'>, space, one<'('>, Condition, star<AndClause>, one<')'>> {};
+struct AndClause : seq<plus<ws>, string<'A', 'N', 'D'>, plus<ws>, sor<Condition, PropertyCheck>> {};
+struct IfClause : seq<string<'i', 'f'>, plus<ws>, one<'('>, star<ws>, Condition, star<AndClause>, star<ws>, one<')'>> {};
 struct PropertyPair : seq<Identifier, one<'='>, String> {};
-struct WithClause : seq<string<' ', 'W', 'I', 'T', 'H'>, space, PropertyPair, star<seq<one<','>, space, PropertyPair>>> {};
-struct ThenClause : seq<string<'t', 'h', 'e', 'n'>, space, string<'r', 'e', 'l', 'a', 't', 'e'>, one<'('>,
-                       Identifier, one<','>, space, Identifier, one<','>, space, String, one<')'>,
+struct WithClause : seq<plus<ws>, string<'W', 'I', 'T', 'H'>, plus<ws>, PropertyPair, star<seq<one<','>, plus<ws>, PropertyPair>>> {};
+struct ThenClause : seq<string<'t', 'h', 'e', 'n'>, plus<ws>, string<'r', 'e', 'l', 'a', 't', 'e'>, star<ws>, one<'('>,
+                       Identifier, star<ws>, one<','>, star<ws>, Identifier, star<ws>, one<','>, star<ws>, String, star<ws>, one<')'>,
                        opt<WithClause>> {};
-
-struct UseDecl : seq<string<'u', 's', 'e'>, space, RelationName, space, string<'A', 'S'>, space, Identifier> {};
-
-struct Rule : seq<string<'r', 'u', 'l', 'e'>, space, Identifier, space, one<'{'>, space,
-              IfClause, space, ThenClause, space, one<'}'>> {};
-
-struct ContextDef : seq<string<'c', 'o', 'n', 't', 'e', 'x', 't'>,
-                        space, Identifier, space, one<'{'>, plus<Rule>, one<'}'>> {};
-
+struct Rule : seq<string<'r', 'u', 'l', 'e'>, plus<ws>, Identifier, star<ws>, one<'{'>, star<ws>, IfClause, star<ws>, ThenClause, star<ws>, one<'}'>> {};
+struct ContextDef : seq<string<'c', 'o', 'n', 't', 'e', 'x', 't'>, plus<ws>, Identifier, star<ws>, one<'{'>, star<ws>, plus<Rule>, star<ws>, one<'}'>> {};
 struct RuleOrContext : sor<ContextDef, Rule> {};
-struct Definitions :   seq<star<UseDecl>, plus<RuleOrContext>> {};
-struct Grammar :  pad < Definitions, ws > {};
+struct Grammar : seq<star<sor<UseDecl, ws>>, star<ws>, plus<sor<RuleOrContext, ws>>, star<ws>, eof> {};
 
 // Actions
 struct RuleDef {
@@ -194,8 +189,15 @@ public:
 
     void loadDSL(const std::string& dsl) {
         try {
+            size_t problems = analyze<Grammar>();
+            if (problems > 0) {
+                std::cout << "grammar analysis found " << problems << " problems, aborting." << std::endl;
+                exit(1);
+            }
+
             parse<Grammar, Action>(memory_input(dsl, "DSL"), state);
             std::cout << "Parsed " << state.contexts.size() << " contexts\n";
+
             for (const auto& ctx : state.contexts) {
                 std::cout << "Context: " << ctx.mimeType << ", Rules: " << ctx.rules.size() << "\n";
             }
@@ -219,11 +221,11 @@ public:
         }
 
         for (const auto& context : state.contexts) {
-//            if (context.mimeType.empty() || context.mimeType == sourceMimeType) {
+            if (context.mimeType.empty() || context.mimeType == sourceMimeType) {
                 for (const auto& rule : context.rules) {
                     applyRule(rule);
                 }
-//            }
+            }
         }
     }
 

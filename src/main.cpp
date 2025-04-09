@@ -6,7 +6,8 @@ int main() {
     KnowledgeBase kb;
     InferenceEngine engine(kb, 2);
 
-    std::string dsl = R"(use relation/book-quote AS quotes
+    std::string dsl = R"(
+        use relation/book-quote AS quotes
         use relation/family-link AS genealogy
 
         context text/book {
