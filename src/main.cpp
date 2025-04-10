@@ -13,7 +13,7 @@ int main() {
         context text/book {
             rule quoted_by {
                 if (A ~quotes B)
-                then relate(B, A, "quotes") with type="inverse", label="quoted by"
+                then relate(B, A, "quotes") WITH type="inverse", label="quoted by"
             }
         }
 
@@ -57,7 +57,9 @@ int main() {
         engine.infer(sourceMime);
 
         for (const auto& rel : kb.relations) {
-            std::cout << rel.from << " -> " << rel.to << " : " << rel.type << " {";
+            std::cout << rel.from << " -> " << rel.to << " : " << rel.type
+            << (rel.inferred ? " *" : "")
+            << " {";
             for (const auto& [k, v] : rel.properties) {
                 std::cout << k << "=\"" << v << "\" ";
             }

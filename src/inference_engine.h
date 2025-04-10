@@ -27,6 +27,7 @@ struct Relation {
     std::string to;
     std::string type;
     std::unordered_map<std::string, std::string> properties;
+    bool inferred = false;
 };
 
 class KnowledgeBase {
@@ -42,8 +43,8 @@ public:
     }
 
     void addRelation(const std::string& from, const std::string& to, const std::string& type,
-                     const std::unordered_map<std::string, std::string>& props = {}) {
-        relations.push_back({from, to, type, props});
+                     const std::unordered_map<std::string, std::string>& props = {}, bool inferred = false) {
+        relations.push_back({from, to, type, props, inferred});
     }
 };
 
@@ -79,7 +80,7 @@ struct RuleOrContext : sor<ContextDef, Rule> {};
 
 struct Statement : sor<UseDecl, RuleOrContext> {};
 struct StatementList : plus<Statement, wsb> {};
-struct Grammar : seq<wsb, StatementList, eof> {};
+struct Grammar : seq<wsb, plus<UseDecl, wsb>, plus<ContextDef, wsb>, eof> {};
 
 // Actions
 struct RuleDef {
@@ -140,22 +141,21 @@ template<> struct Action<Rule> {
         size_t nameEnd = s.find(' ', nameStart);
 
         state.pendingRule.name = s.substr(nameStart, nameEnd - nameStart);
-
-        // associate with correct context
-        if (state.contexts.empty()) {
-            state.contexts.push_back({"", {}});
-        }
         std::string currentContext = state.contexts.back().mimeType;
-        std::cout << "building rule '" << state.pendingRule.name << "' with context '" << currentContext << "'\n";
+        std::cout << "adding rule '" << state.pendingRule.name << "' with context '" << currentContext << "'\n";
 
         state.contexts.back().rules.push_back(state.pendingRule);
 
-        std::cout << "added data from pending rule: from='" << state.pendingRule.from << "', to='" << state.pendingRule.to
-                  << "', relation='" << state.pendingRule.relation << "', with "
-                  << state.pendingRule.relProperties.size() << " properties"
-                  << " to context " << currentContext << std::endl;
+        auto rule = state.contexts.back().rules.back();
+        std::cout << "added rule '" << rule.name << "' from context '" << currentContext << "' with "
+                  << " from='" << rule.from << "', to='" << rule.to << "', relation='" << rule.relation
+                  << "', with properties: ";
+        for (const auto& [k, v] : rule.relProperties) {
+            std::cout << k << "=\"" << v << "\" ";
+        }
+        std::cout << std::endl;
 
-        state.currentBlock = "rule " + state.pendingRule.name;
+        state.currentBlock = "rule " + rule.name;
         state.pendingRule = RuleDef();
     }
 };
@@ -267,19 +267,12 @@ public:
     }
 
     void infer(const std::string& sourceMimeType) {
-        std::cout << "infer from type " << sourceMimeType << std::endl;
-        std::cout << "contexts:" << std::endl;
-        for (const auto& context : state.contexts) {
-            std::cout << context.mimeType << std::endl;
-        }
-
-        std::cout << std::endl << "*** Running inference engine..." << std::endl << std::endl;
+        std::cout << "* infer from type " << sourceMimeType << "\n";
 
         for (const auto& context : state.contexts) {
-            if (context.mimeType.empty() || context.mimeType == sourceMimeType) {
-                for (const auto& rule : context.rules) {
-                    applyRule(rule);
-                }
+            // todo: check for matching context via MimeType comparison
+            for (const auto& rule : context.rules) {
+                applyRule(rule);
             }
         }
     }
@@ -361,26 +354,24 @@ private:
     }
 
     void applyRule(const RuleDef& rule) {
-        std::cout << "evaluating rule: '" << rule.name << "'\n";
-        bool isTransitive = rule.name == "transitive";  // todo: implement a more advanced check later;-)
+        std::cout << std::endl << "* evaluating rule: '" << rule.name << "'\n";
+        bool isTransitive = rule.name == "transitive";
+
         for (const auto& e1 : kb.entities) {
             for (const auto& e2 : kb.entities) {
+                // later: optimize to skip check for identity relations when not defined in rules
                 std::unordered_map<std::string, std::string> varMap;
                 bool conditionsMet = true;
 
                 if (isTransitive) {
                     for (const auto& e3 : kb.entities) {
-                        for (const auto& e4 : kb.entities) {
-                            conditionsMet = checkTransitive(e1.id, e2.id, e3.id, e4.id, rule.conditions);
-                            if (conditionsMet) {
-                                varMap["A"] = e1.id;
-                                varMap["B"] = e3.id;
-                                varMap["C"] = e4.id;
-                                varMap["D"] = e2.id;
-                                break;
-                            }
+                        conditionsMet = checkTransitive(e1.id, e2.id, e3.id, rule.conditions);
+                        if (conditionsMet) {
+                            varMap["A"] = e1.id;
+                            varMap["B"] = e2.id;
+                            varMap["C"] = e3.id;
+                            break;
                         }
-                        if (conditionsMet) break;
                     }
                 } else {
                     for (const auto& cond : rule.conditions) {
@@ -389,43 +380,50 @@ private:
                             std::string relType = state.aliases.at(alias);
                             std::string var1 = cond.substr(0, cond.find(' '));
                             std::string var2 = cond.substr(cond.rfind(' ') + 1);
+
+                            std::cout << "  checking relation " << relType << " between " << e1.id << " and " << e2.id << "\n";
                             if (checkRelation(e1.id, e2.id, relType, rule.conditions)) {
                                 varMap[var1] = e1.id;
                                 varMap[var2] = e2.id;
                             } else {
+                                std::cout << "    no match\n";
                                 conditionsMet = false;
+                                break;
                             }
                         } else if (cond.find("has") != std::string::npos) {
                             std::string var = cond.substr(0, cond.find(" "));
                             std::string props = cond.substr(cond.find("has") + 4);
+
                             size_t pos = 0;
-                            auto entityProps = queryEntityAttributes(e1.id);
+                            auto entityProps = queryEntityAttributes(varMap[var].empty() ? e1.id : varMap[var]);
+
                             while (pos < props.length()) {
                                 size_t eqPos = props.find('=', pos);
                                 if (eqPos == std::string::npos) break;
-
                                 std::string key = props.substr(pos, eqPos - pos);
+
                                 size_t quoteStart = eqPos + 1;
                                 size_t quoteEnd = props.find('"', quoteStart + 1);
-
                                 std::string value = props.substr(quoteStart + 1, quoteEnd - quoteStart - 1);
 
-                                if (entityProps[key] != value) {
+                                std::cout << "   HAS '" << key << "' = '" << value << "' on " << (varMap[var].empty() ? e1.id : varMap[var]) << "\n";
+
+                                if (entityProps.find(key) == entityProps.end() || entityProps[key] != value) {
                                     conditionsMet = false;
                                     break;
                                 }
-
                                 pos = quoteEnd + 1;
-                                if (pos < props.length() && props[pos] == ',') pos += 2;  // Skip comma and space
+                                if (pos < props.length() && props[pos] == ',') pos += 2;
                             }
-                            if (conditionsMet) varMap[var] = e1.id;
+                            if (!conditionsMet) {
+                                std::cout << "    HAS condition failed\n";
+                                break;
+                            }
                         }
-                        if (!conditionsMet) break;
                     }
                 }
-
                 if (conditionsMet && varMap.count(rule.from) && varMap.count(rule.to)) {
-                    std::cout << "* Inferred: " << varMap[rule.from] << " -> " << varMap[rule.to]
+                    std::cout << "  * Inferred: " << varMap[rule.from] << " -> " << varMap[rule.to]
                               << " : " << rule.relation << " {";
                     for (const auto& [k, v] : rule.relProperties) {
                         std::cout << k << "=\"" << v << "\" ";
@@ -434,7 +432,10 @@ private:
 
                     kb.addRelation(varMap[rule.from], varMap[rule.to],
                                    state.aliases.count(rule.relation) ? state.aliases.at(rule.relation) : rule.relation,
-                                   rule.relProperties);
+                                   rule.relProperties, true);
+
+                } else if (!conditionsMet) {
+                    std::cout << "  X conditions not met for " << e1.id << " -> " << e2.id << "\n";
                 }
             }
         }
@@ -447,21 +448,35 @@ private:
                                [&](const Relation& r) { return r.from == from && r.to == to && r.type == type; });
         if (it == kb.relations.end()) return false;
 
+        // check relation type match
+        if (it->type != type) {
+            std::cout << "relation type does not match." << std::endl;
+            return false;
+        }
+
         for (const auto& cond : conditions) {
             if (cond.find('=') != std::string::npos && cond.find("~") == std::string::npos) {
-                std::cout << "  check condition " << cond << "\n";
                 std::string key = cond.substr(0, cond.find('='));
                 std::string value = cond.substr(cond.find('=') + 2, cond.length() - cond.find('=') - 3);
+                std::cout << "  check condition '" << key << "' = '" << value << "': ";
+
                 auto propIt = it->properties.find(key);
-                if (propIt == it->properties.end() || propIt->second != value) {
+                if (propIt == it->properties.end()) {
+                    std::cout << " empty." << std::endl;
                     return false;
+                }
+                else if ( propIt->second != value) {
+                    std::cout << " != " << propIt->second << std::endl;
+                    return false;
+                } else {
+                    std::cout << " MATCHES '" << propIt->second << "'" << std::endl;
                 }
             }
         }
         return true;
     }
 
-    bool checkTransitive(const std::string& a, const std::string& d, const std::string& b, const std::string& c,
+    bool checkTransitive(const std::string& a, const std::string& b, const std::string& c,
                          const std::vector<std::string>& conditions) {
         std::string relType;
 
@@ -474,10 +489,9 @@ private:
 
         bool abMatch = checkRelation(a, b, relType, conditions);
         bool bcMatch = checkRelation(b, c, relType, conditions);
-        bool cdMatch = checkRelation(c, d, relType, conditions);
 
-        if (abMatch && bcMatch && cdMatch) {
-            std::cout << "    Matched " << a << " -> " << b << " -> " << c << " -> " << d << "\n";
+        if (abMatch && bcMatch) {
+            std::cout << "    transitive match " << a << " -> " << b << " -> " << c << "\n";
             return true;
         }
 
