@@ -54,7 +54,7 @@ struct wss : star<ws> {};
 struct wsp : plus<ws> {};
 struct wsb : star<sor<wsp, eol>> {};
 
-struct Special : one<'/', '-', '_', '.'> {};
+struct Special : one<'/', '-', '_', '.', '*'> {};
 struct Identifier : plus<sor<alnum, Special>> {};
 struct String : seq<one<'"'>, plus<not_at<one<'"'>>, any>, one<'"'>> {};
 struct TypeName : Identifier {};
@@ -71,10 +71,11 @@ struct ThenClause : seq<istring<'t', 'h', 'e', 'n'>, wsp, istring<'r', 'e', 'l',
                        Identifier, star<ws>, one<','>, wss, Identifier, wss, one<','>, wss, String, wss, one<')'>,
                        opt<WithClause>> {};
 
-struct Rule : seq<wsb, istring<'r', 'u', 'l', 'e'>, wsp, Identifier, wsp, one<'{'>, wsb, IfClause, wsb, ThenClause, wsb, one<'}'>, wsb> {};
-struct ContextDef : seq<istring<'c', 'o', 'n', 't', 'e', 'x', 't'>, wsp, Identifier, wsp, one<'{'>, wsb, plus<Rule>, wsb, one<'}'>> {};
-struct RuleOrContext : sor<ContextDef, Rule> {};
 struct UseDecl : seq<istring<'u', 's', 'e'>, wsp, TypeName, wsp, istring<'A', 'S'>, wsp, Identifier> {};
+struct Rule : seq<wsb, istring<'r', 'u', 'l', 'e'>, wsp, Identifier, wsp, one<'{'>, wsb, IfClause, wsb, ThenClause, wsb, one<'}'>, wsb> {};
+struct ContextStart : seq<istring<'c', 'o', 'n', 't', 'e', 'x', 't'>, wsp, Identifier> {};
+struct ContextDef : seq<ContextStart, wsp, one<'{'>, wsb, plus<Rule>, wsb, one<'}'>> {};
+struct RuleOrContext : sor<ContextDef, Rule> {};
 
 struct Statement : sor<UseDecl, RuleOrContext> {};
 struct StatementList : plus<Statement, wsb> {};
@@ -117,33 +118,45 @@ template<> struct Action<UseDecl> {
     }
 };
 
+template<> struct Action<ContextStart> {
+    template<typename ActionInput>
+    static void apply(const ActionInput& in, State& state) {
+        std::string s = in.string();
+        size_t idStart = s.find_first_not_of(" \t\n\r", 7);  // After "context"
+        size_t idEnd = s.length();  // Until end of match
+        std::string mimeType = BString(s.substr(idStart, idEnd - idStart).c_str()).Trim().RemoveAll("\"").String();
+
+        std::cout << "starting context '" << mimeType << "'\n";
+        state.contexts.push_back({mimeType, {}});
+        state.currentBlock = "context " + mimeType;
+    }
+};
+
 template<> struct Action<Rule> {
     template<typename ActionInput>
     static void apply(const ActionInput& in, State& state) {
-        RuleDef rule;
-        rule.name = in.string().substr(5, in.string().find('{') - 6);
+        std::string s = in.string();
+        size_t nameStart = s.find_first_not_of(" \t\n\r", 4);  // After "rule"
+        size_t nameEnd = s.find(' ', nameStart);
+
+        state.pendingRule.name = s.substr(nameStart, nameEnd - nameStart);
+
+        // associate with correct context
         if (state.contexts.empty()) {
-            state.contexts.push_back({"", {}});  // Only if no contexts exist
+            state.contexts.push_back({"", {}});
         }
-        std::cout << "building rule '" << rule.name << "' with context '"
-                  << state.contexts.back().mimeType << "'" << std::endl;
+        std::string currentContext = state.contexts.back().mimeType;
+        std::cout << "building rule '" << state.pendingRule.name << "' with context '" << currentContext << "'\n";
 
-        // get pending rule data into the parsed rule
-        rule.conditions    = std::move(state.pendingRule.conditions);
-        rule.from          = std::move(state.pendingRule.from);
-        rule.to            = std::move(state.pendingRule.to);
-        rule.relation      = std::move(state.pendingRule.relation);
-        rule.relProperties.merge(state.pendingRule.relProperties);
+        state.contexts.back().rules.push_back(state.pendingRule);
 
-        std::cout << "added data from pending rule: from='"
-                  << rule.from << "', to='" << rule.to << "', relation='" << rule.relation
-                  << "', with " << rule.relProperties.size() << " properties." << std::endl;
+        std::cout << "added data from pending rule: from='" << state.pendingRule.from << "', to='" << state.pendingRule.to
+                  << "', relation='" << state.pendingRule.relation << "', with "
+                  << state.pendingRule.relProperties.size() << " properties"
+                  << " to context " << currentContext << std::endl;
 
-        // Reset for next rule
+        state.currentBlock = "rule " + state.pendingRule.name;
         state.pendingRule = RuleDef();
-        state.contexts.back().rules.push_back(rule);
-
-        state.currentBlock = "rule " + rule.name;
     }
 };
 
@@ -215,18 +228,6 @@ template<> struct Action<ThenClause> {
     }
 };
 
-template<> struct Action<ContextDef> {
-    template<typename ActionInput>
-    static void apply(const ActionInput& in, State& state) {
-        ContextDefStruct context;
-        context.mimeType = in.string().substr(8, in.string().find('{') - 9);
-        std::cout << "parsing context '" << context.mimeType << "'" << std::endl;
-
-        state.contexts.push_back(context);
-        state.currentBlock = "context " + context.mimeType;
-    }
-};
-
 class InferenceEngine {
     State state;
     KnowledgeBase& kb;
@@ -271,7 +272,8 @@ public:
         for (const auto& context : state.contexts) {
             std::cout << context.mimeType << std::endl;
         }
-        std::cout << "Running inference engine..." << std::endl;
+
+        std::cout << std::endl << "*** Running inference engine..." << std::endl << std::endl;
 
         for (const auto& context : state.contexts) {
             if (context.mimeType.empty() || context.mimeType == sourceMimeType) {
@@ -392,7 +394,6 @@ private:
                                 varMap[var2] = e2.id;
                             } else {
                                 conditionsMet = false;
-                                break;
                             }
                         } else if (cond.find("has") != std::string::npos) {
                             std::string var = cond.substr(0, cond.find(" "));
@@ -402,30 +403,35 @@ private:
                             while (pos < props.length()) {
                                 size_t eqPos = props.find('=', pos);
                                 if (eqPos == std::string::npos) break;
+
                                 std::string key = props.substr(pos, eqPos - pos);
                                 size_t quoteStart = eqPos + 1;
                                 size_t quoteEnd = props.find('"', quoteStart + 1);
+
                                 std::string value = props.substr(quoteStart + 1, quoteEnd - quoteStart - 1);
+
                                 if (entityProps[key] != value) {
                                     conditionsMet = false;
                                     break;
                                 }
+
                                 pos = quoteEnd + 1;
                                 if (pos < props.length() && props[pos] == ',') pos += 2;  // Skip comma and space
                             }
                             if (conditionsMet) varMap[var] = e1.id;
-                            else break;
                         }
+                        if (!conditionsMet) break;
                     }
                 }
 
                 if (conditionsMet && varMap.count(rule.from) && varMap.count(rule.to)) {
-                    std::cout << "Inferred: " << varMap[rule.from] << " -> " << varMap[rule.to]
+                    std::cout << "* Inferred: " << varMap[rule.from] << " -> " << varMap[rule.to]
                               << " : " << rule.relation << " {";
                     for (const auto& [k, v] : rule.relProperties) {
                         std::cout << k << "=\"" << v << "\" ";
                     }
                     std::cout << "}\n";
+
                     kb.addRelation(varMap[rule.from], varMap[rule.to],
                                    state.aliases.count(rule.relation) ? state.aliases.at(rule.relation) : rule.relation,
                                    rule.relProperties);

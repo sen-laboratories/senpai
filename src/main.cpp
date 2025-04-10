@@ -40,9 +40,11 @@ int main() {
             }
         }
 
-        rule transitive {
-            if (A ~genealogy B AND role="parent of" AND B ~genealogy C AND role="parent of")
-            then relate(A, C, "genealogy") WITH role="grandfather"
+        context */* {
+            rule transitive {
+                if (A ~genealogy B AND role="parent of" AND B ~genealogy C AND role="parent of")
+                then relate(A, C, "genealogy") WITH role="grandparent"
+            }
         }
     )";
 
