@@ -32,7 +32,8 @@ int main() {
 
     try {
         engine.loadDSL(dsl);
-        engine.loadFromSource("id3");  // Start with Alice (person)
+        engine.loadFromSource("id1");  // Load book data
+        engine.loadFromSource("id3");  // Load person data
 
         std::string sourceMime = kb.entities[0].properties.at("mime");
         engine.infer(sourceMime);

@@ -13,6 +13,8 @@
 #include <tao/pegtl/contrib/analyze.hpp>
 #include <tao/pegtl/contrib/trace.hpp>
 
+#include <String.h>
+
 using namespace tao::pegtl;
 
 struct Entity {
@@ -141,9 +143,20 @@ template<> struct Action<Rule> {
         std::cout << "building rule '" << rule.name << "' with context '"
                   << state.contexts.back().mimeType << "'" << std::endl;
 
-        // Move pending conditions into the rule
-        rule.conditions = std::move(state.pendingRule.conditions);
-        state.pendingRule.conditions.clear();  // Reset for next rule
+        // get pending rule data into the parsed rule
+        rule.conditions    = std::move(state.pendingRule.conditions);
+        rule.from          = std::move(state.pendingRule.from);
+        rule.to            = std::move(state.pendingRule.to);
+        rule.relation      = std::move(state.pendingRule.relation);
+        rule.relProperties.merge(state.pendingRule.relProperties);
+
+        std::cout << "added data from pending rule: from='"
+                  << rule.from << "', to='" << rule.to << "', relation='" << rule.relation
+                  << "', with " << rule.relProperties.size() << " properties." << std::endl;
+
+        // Reset for next rule
+        state.pendingRule.conditions.clear();
+        state.pendingRule.relProperties.clear();
 
         state.contexts.back().rules.push_back(rule);
         state.currentBlock = "rule " + rule.name;
@@ -175,13 +188,19 @@ template<> struct Action<ThenClause> {
     template<typename ActionInput>
     static void apply(const ActionInput& in, State& state) {
         std::string s = in.string();
+        std::cout << "parsing THEN clause " << s << std::endl;
+
+//  then relate(B, A, "quoted-by")
+        size_t bracketOpen = s.find('(');
         size_t firstComma = s.find(',');
         size_t secondComma = s.find(',', firstComma + 1);
-        size_t relEnd = s.find(')', secondComma);
+        size_t bracketClose = s.find(')', secondComma + 1);
+
         auto& rule = state.pendingRule;
-        rule.from = s.substr(11, firstComma - 11);
-        rule.to = s.substr(firstComma + 2, secondComma - firstComma - 2);
-        rule.relation = s.substr(secondComma + 2, relEnd - secondComma - 2);
+        rule.from = BString(s.substr(bracketOpen + 1, firstComma - bracketOpen - 1).c_str()).Trim().String();
+        rule.to = BString(s.substr(firstComma + 1, secondComma - firstComma - 1).c_str()).Trim().String();
+        rule.relation = BString(s.substr(secondComma + 1, bracketClose - secondComma).c_str()).Trim()
+                              .RemoveAll("\"").String();
 
         // Parse optional WITH clause with commas
         if (s.find(" WITH ") != std::string::npos) {
@@ -350,74 +369,48 @@ private:
     }
 
     void applyRule(const RuleDef& rule) {
-        std::cout << "evaluating rule: '" << rule.name << "'" << std::endl;
+        std::cout << "evaluating rule '" << rule.name << " from " << rule.from << " to " << rule.to << std::endl;
+        std::unordered_map<std::string, std::string> varMap;
 
         for (const auto& e1 : kb.entities) {
             for (const auto& e2 : kb.entities) {
-                std::unordered_map<std::string, std::string> varMap;
                 bool conditionsMet = true;
+                varMap.clear();
 
                 for (const auto& cond : rule.conditions) {
+                    std::cout << "  checking condition " << cond << std::endl;
+
                     if (cond.find("~") != std::string::npos) {
                         std::string alias = extractAlias(cond);
                         std::string relType = state.aliases.at(alias);
                         std::string var1 = cond.substr(0, cond.find(' '));
                         std::string var2 = cond.substr(cond.rfind(' ') + 1);
+                        std::cout << "  checking relation with e1=" << e1.id << ", e2=" << e2.id
+                                  << ", relation=" << relType << ", var1=" << var1 << ", var2=" << var2 << "\n";
 
-                        std::cout << "  checking with e1=" << e1.id << ", e2=" << e2.id
-                                  << ", relation=" << relType << ", var1=" << var1 << ", var2=" << var2 << std::endl;
-
-                        bool found = false;
-                        for (const auto& e : kb.entities) {
-                            std::cout << "    e=" << e.id << std::endl;
-
-                            if (varMap.count(var1) && varMap.count(var2)) {
-                                if (checkRelation(varMap[var1], varMap[var2], relType, rule.conditions)) {
-                                    found = true;
-                                    break;
-                                }
-                            } else if (varMap.count(var1)) {
-                                if (checkRelation(varMap[var1], e.id, relType, rule.conditions)) {
-                                    varMap[var2] = e.id;
-                                    found = true;
-                                    break;
-                                }
-                            } else if (varMap.count(var2)) {
-                                if (checkRelation(e.id, varMap[var2], relType, rule.conditions)) {
-                                    varMap[var1] = e.id;
-                                    found = true;
-                                    break;
-                                }
-                            } else {
-                                if (checkRelation(e1.id, e2.id, relType, rule.conditions)) {
-                                    varMap[var1] = e1.id;
-                                    varMap[var2] = e2.id;
-                                    found = true;
-                                    break;
-                                }
-                            }
-                        }
-                        if (!found) conditionsMet = false;
-                    } else if (cond.find("has \"") != std::string::npos) {
-                        std::string prop = extractQuoted(cond);
-                        std::string var1 = cond.substr(0, cond.find(' '));
-                        std::string var2 = cond.substr(cond.rfind(' ') + 1);
-
-                        std::cout << "    checking HAS with prop=" << prop << ", var1=" << var1 << ", var2=" << var2
-                                  << std::endl;
-
-                        varMap[var1] = e1.id;
-                        varMap[var2] = e2.id;
-
-                        auto it = e1.properties.find(prop);
-                        if (it == e1.properties.end() || (e2.id != it->second && var2 == it->second)) {
+                        if (checkRelation(e1.id, e2.id, relType, rule.conditions)) {
+                            std::cout << "    Matched " << e1.id << " -> " << e2.id << "\n";
+                            varMap[var1] = e1.id;
+                            varMap[var2] = e2.id;
+                            // ? continue to check possible further relation conditions (i.e. transitive relations!)
+                            break;
+                        } else {
+                            std::cout << "    No match\n";
                             conditionsMet = false;
+                            break;
                         }
                     }
                 }
 
-                if (conditionsMet && varMap.count(rule.from) && varMap.count(rule.to)) {
-                    std::cout << "Inferred: " << varMap[rule.from] << " -> " << varMap[rule.to]
+                std::cout << "    got varMap with " << varMap.size() << " elements." << std::endl;
+
+                if (conditionsMet) {
+                    if (varMap.find(rule.from) == varMap.end() || varMap.find(rule.to) == varMap.end()) {
+                        std::cout << "    rule triggered but could not find expected vars for relation!" << std::endl;
+                        continue;
+                    }
+
+                    std::cout << "    inferred: " << varMap[rule.from] << " -> " << varMap[rule.to]
                               << " : " << rule.relation << " {";
                     for (const auto& [k, v] : rule.relProperties) {
                         std::cout << k << "=\"" << v << "\" ";
@@ -427,8 +420,6 @@ private:
                     kb.addRelation(varMap[rule.from], varMap[rule.to],
                                    state.aliases.count(rule.relation) ? state.aliases.at(rule.relation) : rule.relation,
                                    rule.relProperties);
-                } else {
-                    std::cout << "conditions didn't meet rule " << rule.name << std::endl;
                 }
             }
         }
@@ -436,12 +427,15 @@ private:
 
     bool checkRelation(const std::string& from, const std::string& to, const std::string& type,
                        const std::vector<std::string>& conditions) {
+
+        std::cout << "checkRelation " << type << "\n";
         auto it = std::find_if(kb.relations.begin(), kb.relations.end(),
                                [&](const Relation& r) { return r.from == from && r.to == to && r.type == type; });
         if (it == kb.relations.end()) return false;
 
         for (const auto& cond : conditions) {
             if (cond.find('=') != std::string::npos && cond.find("~") == std::string::npos) {
+                std::cout << "  check condition " << cond << "\n";
                 std::string key = cond.substr(0, cond.find('='));
                 std::string value = cond.substr(cond.find('=') + 2, cond.length() - cond.find('=') - 3);
                 auto propIt = it->properties.find(key);
