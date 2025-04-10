@@ -13,19 +13,35 @@ int main() {
         context text/book {
             rule quoted_by {
                 if (A ~quotes B)
-                then relate(B, A, "quoted-by")
+                then relate(B, A, "quotes") with type="inverse", label="quoted by"
             }
         }
 
         context application/person {
             rule child_of {
-                if (A ~genealogy B AND role="parent-of")
-                then relate(B, A, "genealogy") WITH role="child-of"
+                if (A ~genealogy B AND role="parent of")
+                then relate(B, A, "genealogy") WITH role="child of"
+            }
+            rule father_of {
+                if (A ~genealogy B AND role="parent of" AND A has gender="male")
+                then relate(A, B, "genealogy") WITH label="father of"
+            }
+            rule mother_of {
+                if (A ~genealogy B AND role="parent of" AND A has gender="female")
+                then relate(A, B, "genealogy") WITH label="mother of"
+            }
+            rule daughter_of {
+                if (A ~genealogy B AND role="parent of" AND B has gender="female")
+                then relate(B, A, "genealogy") WITH label="daughter of"
+            }
+            rule father_of {
+                if (A ~genealogy B AND role="parent of" AND B has gender="male")
+                then relate(B, A, "genealogy") WITH label="son of"
             }
         }
 
-        rule grandfather {
-            if (A ~genealogy B AND role="parent-of" AND B ~genealogy C AND role="parent-of")
+        rule transitive {
+            if (A ~genealogy B AND role="parent of" AND B ~genealogy C AND role="parent of")
             then relate(A, C, "genealogy") WITH role="grandfather"
         }
     )";
