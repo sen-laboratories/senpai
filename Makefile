@@ -129,6 +129,30 @@ sen-inference/fast:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/sen-inference.dir/build.make CMakeFiles/sen-inference.dir/build
 .PHONY : sen-inference/fast
 
+src/inference_engine.o: src/inference_engine.cpp.o
+.PHONY : src/inference_engine.o
+
+# target to build an object file
+src/inference_engine.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/sen-inference.dir/build.make CMakeFiles/sen-inference.dir/src/inference_engine.cpp.o
+.PHONY : src/inference_engine.cpp.o
+
+src/inference_engine.i: src/inference_engine.cpp.i
+.PHONY : src/inference_engine.i
+
+# target to preprocess a source file
+src/inference_engine.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/sen-inference.dir/build.make CMakeFiles/sen-inference.dir/src/inference_engine.cpp.i
+.PHONY : src/inference_engine.cpp.i
+
+src/inference_engine.s: src/inference_engine.cpp.s
+.PHONY : src/inference_engine.s
+
+# target to generate assembly for a file
+src/inference_engine.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/sen-inference.dir/build.make CMakeFiles/sen-inference.dir/src/inference_engine.cpp.s
+.PHONY : src/inference_engine.cpp.s
+
 src/main.o: src/main.cpp.o
 .PHONY : src/main.o
 
@@ -162,6 +186,9 @@ help:
 	@echo "... edit_cache"
 	@echo "... rebuild_cache"
 	@echo "... sen-inference"
+	@echo "... src/inference_engine.o"
+	@echo "... src/inference_engine.i"
+	@echo "... src/inference_engine.s"
 	@echo "... src/main.o"
 	@echo "... src/main.i"
 	@echo "... src/main.s"

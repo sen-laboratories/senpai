@@ -1,49 +1,49 @@
-// FILE: main.cpp
-#include "inference_engine.h"
 #include <iostream>
+
+#include "inference_engine.h"
 
 int main() {
     KnowledgeBase kb;
     InferenceEngine engine(kb, 2);
 
     std::string dsl = R"(
-        use relation/book-quote AS quotes
-        use relation/family-link AS genealogy
+        USE relation/book-quote AS quotes
+        USE relation/family-link AS genealogy
 
-        context text/book {
-            rule quoted_by {
-                if (A ~quotes B)
-                then relate(B, A, "quotes") WITH type="inverse", label="quoted by"
+        CONTEXT text/book {
+            RULE quoted_by {
+                IF (A ~quotes B)
+                THEN RELATE(B, A, "quotes") WITH type="inverse", label="quoted by"
             }
         }
 
-        context application/person {
-            rule child_of {
-                if (A ~genealogy B AND role="parent of")
-                then relate(B, A, "genealogy") WITH role="child of"
+        CONTEXT application/person {
+            RULE child_of {
+                IF (A ~genealogy B AND role="parent of")
+                THEN RELATE(B, A, "genealogy") WITH role="child of"
             }
-            rule father_of {
-                if (A ~genealogy B AND role="parent of" AND A has gender="male")
-                then relate(A, B, "genealogy") WITH label="father of"
+            RULE father_of {
+                IF (A ~genealogy B AND role="parent of" AND A has gender="male")
+                THEN RELATE(A, B, "genealogy") WITH label="father of"
             }
-            rule mother_of {
-                if (A ~genealogy B AND role="parent of" AND A has gender="female")
-                then relate(A, B, "genealogy") WITH label="mother of"
+            RULE mother_of {
+                IF (A ~genealogy B AND role="parent of" AND A has gender="female")
+                THEN RELATE(A, B, "genealogy") WITH label="mother of"
             }
-            rule daughter_of {
-                if (A ~genealogy B AND role="parent of" AND B has gender="female")
-                then relate(B, A, "genealogy") WITH label="daughter of"
+            RULE daughter_of {
+                IF (A ~genealogy B AND role="parent of" AND B has gender="female")
+                THEN RELATE(B, A, "genealogy") WITH label="daughter of"
             }
-            rule father_of {
-                if (A ~genealogy B AND role="parent of" AND B has gender="male")
-                then relate(B, A, "genealogy") WITH label="son of"
+            RULE father_of {
+                IF (A ~genealogy B AND role="parent of" AND B has gender="male")
+                THEN RELATE(B, A, "genealogy") WITH label="son of"
             }
         }
 
-        context */* {
-            rule transitive {
-                if (A ~genealogy B AND role="parent of" AND B ~genealogy C AND role="parent of")
-                then relate(A, C, "genealogy") WITH role="grandparent"
+        CONTEXT */* {
+            RULE transitive {
+                IF (A ~genealogy B AND role="parent of" AND B ~genealogy C AND role="parent of")
+                THEN RELATE(A, C, "genealogy") WITH role="grandparent"
             }
         }
     )";
@@ -53,8 +53,8 @@ int main() {
         engine.loadFromSource("id1");  // Load book data
         engine.loadFromSource("id3");  // Load person data
 
-        std::string sourceMime = kb.entities[0].properties.at("mime");
-        engine.infer(sourceMime);
+        engine.infer("text/book");
+        engine.infer("application/person");
 
         for (const auto& rel : kb.relations) {
             std::cout << rel.from << " -> " << rel.to << " : " << rel.type
