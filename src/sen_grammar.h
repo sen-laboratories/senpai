@@ -42,12 +42,14 @@ namespace grammar {
     struct identifier : plus<sor<alnum, one<'_'>>> {};
     struct variable : seq<upper, star<alnum>> {};
     struct quoted_string : seq<one<'"'>, star<sor<alnum, space, one<'-', '_', '.'>>>, one<'"'>> {};
+
+    // MIME type
     struct mime_part : plus<sor<alnum, one<'-'>>> {};
     struct mime_wildcard : one<'*'> {};
-    struct mime_type : sor<seq<mime_part, one<'/'>, sor<mime_part, mime_wildcard>>, mime_part> {};
+    struct mime_type : seq<sor<mime_part, mime_wildcard>, one<'/'>, sor<mime_part, mime_wildcard> > {};
 
     // Attributes
-    struct attribute_key : minus<identifier, keyword_and> {};
+    struct attribute_key : identifier {};
     struct attribute_value : quoted_string {};
     struct attribute : seq<attribute_key, ws_with_newline, one<'='>, ws_with_newline, attribute_value> {};
     struct attributes : list<attribute, seq<opt<one<','>>, ws_with_newline>> {};
@@ -58,20 +60,27 @@ namespace grammar {
     // Relation
     struct relation_op : one<'~'> {};
     struct relation_name : sor<identifier, quoted_string> {};
-    struct relation_attributes : opt<seq<ws_with_newline, keyword_and, ws_with_newline, attributes>> {};
-    struct relation : seq<one<'('>, ws_with_newline, variable, ws_with_newline, relation_op, relation_name, ws_with_newline, variable, relation_attributes, ws_with_newline, one<')'>> {};
+    struct relation_attributes : star<seq<ws_with_newline, keyword_and, ws_with_newline, attributes>> {};
+    struct relation : seq<variable, ws_with_newline, relation_op, relation_name, ws_with_newline, variable, relation_attributes> {};
 
     // Predicate
     struct predicate : seq<variable, ws_with_newline, keyword_has, ws_with_newline, attribute_key, ws_with_newline, one<'='>, ws_with_newline, attribute_value> {};
 
     // Condition
     struct condition : sor<relation, predicate> {};
-    struct conditions : seq<condition, star<seq<ws_with_newline, keyword_and, ws_with_newline, condition>>> {};
+    struct conditions : seq<one<'('>, ws_with_newline,
+                                condition,
+                                star<seq<ws_with_newline, keyword_and, ws_with_newline, condition, ws_with_newline>>,
+                            one<')'> > {};
 
     // THEN RELATE
     struct relation_from : variable {};
     struct relation_to : variable {};
-    struct relate_clause : seq<keyword_relate, ws_with_newline, one<'('>, ws_with_newline, relation_from, ws_with_newline, opt<one<','>>, ws_with_newline, relation_to, ws_with_newline, opt<one<','>>, ws_with_newline, relation_name, ws_with_newline, one<')'>, opt<seq<ws_with_newline, keyword_with, ws_with_newline, attributes>>> {};
+    struct relate_clause : seq<keyword_relate, ws_with_newline, one<'('>, ws_with_newline,
+                            relation_from, ws_with_newline, opt<one<','>>, ws_with_newline,
+                            relation_to, ws_with_newline, opt<one<','>>, ws_with_newline,
+                            relation_name, ws_with_newline, one<')'>, opt<seq<ws_with_newline,
+                            keyword_with, ws_with_newline, attributes>>> {};
 
     // Rule
     struct rule_name : identifier {};
@@ -239,9 +248,9 @@ namespace actions {
                 state.current_rule.name = std::move(state.rule_name);
                 std::cout << "ADD RULE: " << state.current_rule.name << ", conditions=" << state.current_rule.conditions.size()
                           << ", conclusion=" << state.current_rule.conclusion.relation_name << "\n";
-                std::cout << "total: " << state.current_context.rules.size() << " rules.\n";
 
                 state.current_context.rules.push_back(std::move(state.current_rule));
+                std::cout << "total rules: " << state.current_context.rules.size() << " rules.\n";
 
                 state.current_rule = rule_t{};
                 state.rule_name.clear();
@@ -265,16 +274,14 @@ namespace actions {
     };
 
     template<> struct action<grammar::keyword_and> {
-        static void apply0(rule_state& state) {
+        static void apply0(rule_state&) {
             std::cout << "Parsed AND keyword\n";
-            state.current_name.clear();
         }
     };
 
     template<> struct action<grammar::keyword_has> {
-        static void apply0(rule_state& state) {
+        static void apply0(rule_state&) {
             std::cout << "Parsed HAS keyword\n";
-            state.current_name.clear();
         }
     };
 
@@ -333,7 +340,7 @@ namespace actions {
         template<typename ActionInput>
         static void apply(const ActionInput& in, rule_state& state) {
             state.current_attribute.key = grammar::unquote(in.string());
-            std::cout << "Parsed attribute key: " << state.current_name << "\n";
+            std::cout << "Parsed attribute key: " << state.current_attribute.key << "\n";
         }
     };
 
@@ -387,10 +394,13 @@ namespace actions {
     template<> struct action<grammar::predicate> {
         static void apply0(rule_state& state) {
             predicate_t pred;
-            if (!state.current_vars.empty()) pred.var = state.current_vars[0];
-            pred.key = std::move(state.current_name);
+            if (!state.current_vars.empty())
+                pred.var = state.current_vars[0];
+
+            pred.key = std::move(state.current_attribute.key);
             pred.value = std::move(state.current_attribute.value);
             state.current_condition.value = pred;
+
             std::cout << "Parsed predicate: " << pred.var << " has " << pred.key << "=\"" << pred.value << "\"\n";
             state.current_vars.clear();
             state.current_name.clear();
