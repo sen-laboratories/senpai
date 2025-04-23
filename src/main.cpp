@@ -1,6 +1,5 @@
 // main.cpp
 #include <iostream>
-#include <optional>
 #include "inference_engine.h"
 
 int main() {
@@ -30,50 +29,30 @@ int main() {
     sen::InferenceEngine engine;
     engine.parse(dsl);
 
-    engine.add_fact({"genealogy", "John", "Mary", {{"role", "parent of"}}});
-    engine.add_fact({"genealogy", "Mary", "Alice", {{"role", "parent of"}}});
-    engine.add_fact({"quotes", "Book1", "Quote1", {}});
-    engine.add_predicate({"John", "gender", "male"});
-    engine.add_predicate({"Mary", "gender", "female"});
-    engine.add_predicate({"Alice", "gender", "female"});
+    engine.add_fact("genealogy", "John", "Mary", {{"role", "parent of"}});
+    engine.add_fact("genealogy", "Mary", "Alice", {{"role", "parent of"}});
+    engine.add_fact("quotes", "Book1", "Quote1", {});
+    engine.add_predicate("John", "gender", "male");
+    engine.add_predicate("Mary", "gender", "female");
+    engine.add_predicate("Alice", "gender", "female");
 
     std::cout << "First run (context */*, max_depth=2, iterations=2):\n";
     auto new_relations = engine.infer("*/*", 2, 2);
-    for (const auto& rel : new_relations) {
-        std::cout << "New relation: " << rel.relation_name << "(" << rel.var1 << ", " << rel.var2 << ")";
-        if (!rel.attributes.empty()) {
-            std::cout << " WITH ";
-            for (size_t i = 0; i < rel.attributes.size(); ++i) {
-                std::cout << rel.attributes[i].key << "=\"" << rel.attributes[i].value << "\"";
-                if (i < rel.attributes.size() - 1) std::cout << ", ";
-            }
-        }
-        std::cout << "\n";
-    }
 
-    std::cout << "\nSecond run (context application/person, max_depth=2, iterations=1):\n";
-    new_relations = engine.infer("application/person", 2, 1);
     for (const auto& rel : new_relations) {
-        std::cout << "New relation: " << rel.relation_name << "(" << rel.var1 << ", " << rel.var2 << ")";
-        if (!rel.attributes.empty()) {
-            std::cout << " WITH ";
-            for (size_t i = 0; i < rel.attributes.size(); ++i) {
-                std::cout << rel.attributes[i].key << "=\"" << rel.attributes[i].value << "\"";
-                if (i < rel.attributes.size() - 1) std::cout << ", ";
-            }
-        }
-        std::cout << "\n";
-    }
+        std::string relation_name = rel.relation_name;
+        std::string relation_from = rel.var1;
+        std::string relation_to   = rel.var2;
+        auto relation_attrs= rel.attributes;
 
-    std::cout << "\nThird run (all text/* contexts, max_depth=2, iterations=2):\n";
-    new_relations = engine.infer("text/*", 2, 2);
-    for (const auto& rel : new_relations) {
-        std::cout << "New relation: " << rel.relation_name << "(" << rel.var1 << ", " << rel.var2 << ")";
-        if (!rel.attributes.empty()) {
+        std::cout << "New relation: " << relation_name << "("
+                  << relation_from << " -> " << relation_to << ")";
+
+        if (!relation_attrs.empty()) {
             std::cout << " WITH ";
-            for (size_t i = 0; i < rel.attributes.size(); ++i) {
-                std::cout << rel.attributes[i].key << "=\"" << rel.attributes[i].value << "\"";
-                if (i < rel.attributes.size() - 1) std::cout << ", ";
+            for (size_t i = 0; i < relation_attrs.size(); ++i) {
+                std::cout << relation_attrs[i].key << "=\"" << relation_attrs[i].value << "\"";
+                if (i < relation_attrs.size() - 1) std::cout << ", ";
             }
         }
         std::cout << "\n";

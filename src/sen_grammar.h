@@ -1,8 +1,8 @@
-// sen_grammar.h
 #pragma once
 
 #include <tao/pegtl.hpp>
 #include <iomanip>
+#include <iostream>
 #include <string>
 #include <vector>
 #include <variant>
@@ -10,12 +10,8 @@
 
 namespace sen {
 
-static std::string unquote(const std::string s) {
-    std::string result;
-    std::istringstream strstr(s);
-    strstr >> std::quoted(result);
-    return result;
-}
+// Helpers
+std::string unquote(const std::string s);
 
 namespace grammar {
     using namespace tao::pegtl;
@@ -89,6 +85,7 @@ namespace grammar {
 
 namespace actions {
     // Data structures
+
     struct attribute_t {
         std::string key;
         std::string value;
@@ -164,6 +161,7 @@ namespace actions {
     };
 
     // Actions
+
     template<typename Rule>
     struct action : tao::pegtl::nothing<Rule> {};
 
@@ -171,7 +169,6 @@ namespace actions {
         template<typename ActionInput>
         static void apply(const ActionInput& in, rule_state& state) {
             state.current_context.mime_type = in.string();
-            std::cout << "Parsed MIME type: " << state.current_context.mime_type << "\n";
         }
     };
 
@@ -179,7 +176,6 @@ namespace actions {
         template<typename ActionInput>
         static void apply(const ActionInput& in, rule_state& state) {
             state.current_name = in.string();
-            std::cout << "Parsed identifier: " << state.current_name << "\n";
         }
     };
 
@@ -187,7 +183,6 @@ namespace actions {
         template<typename ActionInput>
         static void apply(const ActionInput& in, rule_state& state) {
             state.current_vars.push_back(in.string());
-            std::cout << "Parsed variable: " << in.string() << "\n";
         }
     };
 
@@ -195,7 +190,6 @@ namespace actions {
         template<typename ActionInput>
         static void apply(const ActionInput& in, rule_state& state) {
             state.current_name = unquote(in.string());
-            std::cout << "Parsed quoted string: " << state.current_name << "\n";
         }
     };
 
@@ -203,29 +197,18 @@ namespace actions {
         template<typename ActionInput>
         static void apply(const ActionInput&, rule_state& state) {
             state.aliases[state.current_name] = state.current_context.mime_type;
-            std::cout << "Added alias: " << state.current_name << " -> " << state.current_context.mime_type << "\n";
+            std::cout << "ADD ALIAS: " << state.current_name << " -> " << state.current_context.mime_type << "\n";
             state.current_name.clear();
             state.current_context.mime_type.clear();
         }
     };
 
-    template<> struct action<grammar::keyword_context> {
-        static void apply0(rule_state&) {
-            std::cout << "Parsed CONTEXT keyword\n";
-        }
-    };
-
     template<> struct action<grammar::context> {
         static void apply0(rule_state& state) {
-            std::cout << "Adding context: " << state.current_context.mime_type << " with " << state.current_context.rules.size() << " rules\n";
+            std::cout << "ADD CONTEXT: " << state.current_context.mime_type << " with "
+                      << state.current_context.rules.size() << " rules\n";
             state.contexts.push_back(std::move(state.current_context));
             state.current_context = context_t{};
-        }
-    };
-
-    template<> struct action<grammar::keyword_rule> {
-        static void apply0(rule_state&) {
-            std::cout << "Parsed RULE keyword\n";
         }
     };
 
@@ -233,7 +216,6 @@ namespace actions {
         template<typename ActionInput>
         static void apply(const ActionInput& in, rule_state& state) {
             state.rule_name = in.string();
-            std::cout << "Parsed rule_name '" << state.rule_name << "' at: " << in.position() << "\n";
         }
     };
 
@@ -241,52 +223,25 @@ namespace actions {
         static void apply0(rule_state& state) {
             if (!state.rule_name.empty()) {
                 state.current_rule.name = std::move(state.rule_name);
-                std::cout << "Added rule: " << state.current_rule.name << "\n";
+                std::cout << "ADD RULE: " << state.current_rule.name
+                      << ", conditions=" << state.current_rule.conditions.size()
+                      << ", conclusion=" << state.current_rule.conclusion.relation_name << "\n";
+
                 state.current_context.rules.push_back(std::move(state.current_rule));
+                std::cout << "total: " << state.current_context.rules.size() << " rules.\n";
                 state.current_rule = rule_t{};
                 state.rule_name.clear();
                 state.current_name.clear();
             } else {
-                std::cout << "Failed to add rule, no name set\n";
+                std::cout << "FAILED to add rule, no name set\n";
             }
-        }
-    };
-
-    template<> struct action<grammar::keyword_if> {
-        static void apply0(rule_state&) {
-            std::cout << "Parsed IF keyword\n";
-        }
-    };
-
-    template<> struct action<grammar::keyword_then> {
-        static void apply0(rule_state&) {
-            std::cout << "Parsed THEN keyword\n";
-        }
-    };
-
-    template<> struct action<grammar::keyword_relate> {
-        static void apply0(rule_state&) {
-            std::cout << "Parsed RELATE keyword\n";
-        }
-    };
-
-    template<> struct action<grammar::keyword_with> {
-        static void apply0(rule_state&) {
-            std::cout << "Parsed WITH keyword\n";
-        }
-    };
-
-    template<> struct action<grammar::rule_body> {
-        static void apply0(rule_state&) {
-            std::cout << "Parsed rule_body\n";
         }
     };
 
     template<> struct action<grammar::relation_name> {
         template<typename ActionInput>
-        static void apply(const ActionInput& in, rule_state& state) {
+        static void apply(const ActionInput&, rule_state& state) {
             state.relation_name = state.current_name;
-            std::cout << "Parsed relation_name: " << state.relation_name << " at: " << in.position() << "\n";
         }
     };
 
@@ -294,7 +249,6 @@ namespace actions {
         template<typename ActionInput>
         static void apply(const ActionInput& in, rule_state& state) {
             state.relation_from = in.string();
-            std::cout << "Parsed relation_from: " << state.relation_from << " at: " << in.position() << "\n";
         }
     };
 
@@ -302,7 +256,6 @@ namespace actions {
         template<typename ActionInput>
         static void apply(const ActionInput& in, rule_state& state) {
             state.relation_to = in.string();
-            std::cout << "Parsed relation_to: " << state.relation_to << " at: " << in.position() << "\n";
         }
     };
 
@@ -310,7 +263,6 @@ namespace actions {
         template<typename ActionInput>
         static void apply(const ActionInput& in, rule_state& state) {
             state.current_attribute.key = in.string();
-            std::cout << "Parsed attribute key: " << state.current_attribute.key << "\n";
         }
     };
 
@@ -318,14 +270,13 @@ namespace actions {
         template<typename ActionInput>
         static void apply(const ActionInput& in, rule_state& state) {
             state.current_attribute.value = unquote(in.string());
-            std::cout << "Parsed attribute value: " << state.current_attribute.value << "\n";
         }
     };
 
     template<> struct action<grammar::attribute> {
         static void apply0(rule_state& state) {
             if (!state.current_attribute.key.empty() && !state.current_attribute.value.empty()) {
-                std::cout << "Added attribute: " << state.current_attribute.key << "=" << state.current_attribute.value << "\n";
+                std::cout << "ADD ATTRIBUTE: " << state.current_attribute.key << "=" << state.current_attribute.value << "\n";
                 state.current_attributes.push_back(std::move(state.current_attribute));
             } else {
                 std::cout << "Failed to add attribute: key=" << state.current_name << ", value=" << state.current_attribute.value << "\n";
@@ -352,36 +303,38 @@ namespace actions {
     template<> struct action<grammar::condition> {
         static void apply0(rule_state& state) {
             state.current_rule.conditions.push_back(std::move(state.current_condition));
-            std::cout << "Added condition to rule\n";
+            std::cout << "ADD CONDITION to rule\n";
             state.current_condition = condition_t{};
         }
     };
 
-    template<> struct action<grammar::relate_clause> {
-        template<typename ActionInput>
-        static void apply(const ActionInput& in, rule_state& state) {
-            std::cout << "Parsing relate_clause at: " << in.position() << "\n";
-            state.current_relate.var1 = std:: move(state.relation_from);
-            state.current_relate.var2 = std:: move(state.relation_to);
-            state.current_relate.relation_name = std:: move(state.relation_name);
-            state.current_relate.attributes = std::move(state.current_attributes);
-
-            std::cout << "Parsed relate clause: RELATE(" << state.current_relate.var1 << ", " << state.current_relate.var2
-                      << ", " << state.current_relate.relation_name << ") WITH attrs ";
-
-            for (size_t i = 0; i < state.current_relate.attributes.size(); ++i) {
-                std::cout << state.current_relate.attributes[i].key << "=\"" << state.current_relate.attributes[i].value << "\"";
-                if (i < state.current_relate.attributes.size() - 1) std::cout << ", ";
-            }
-            std::cout << "\n";
-
-            state.current_rule.conclusion = std::move(state.current_relate);
-            state.relation_from.clear();
-            state.relation_to.clear();
-            state.relation_name.clear();
-            state.current_attributes.clear();
-            state.current_relate = relate_t{};
+    template <> struct action<grammar::relate_clause> {
+      template <typename ActionInput>
+      static void apply(const ActionInput &in, rule_state &state) {
+        std::cout << "Parsing relate_clause at: " << in.position() << "\n";
+        if (state.current_vars.size() >= 2) {
+          state.current_relate.var1 = state.current_vars[0];
+          state.current_relate.var2 = state.current_vars[1];
         }
+        state.current_relate.relation_name = state.relation_name;
+        state.current_relate.attributes = std::move(state.current_attributes);
+        state.current_rule.conclusion = state.current_relate;
+
+        std::cout << "Set conclusion: RELATE(" << state.current_relate.var1
+                  << ", " << state.current_relate.var2 << ", "
+                  << state.current_relate.relation_name << ") WITH ";
+        for (const auto &attr : state.current_relate.attributes) {
+          std::cout << attr.key << "=\"" << attr.value << "\"";
+          if (&attr != &state.current_relate.attributes.back())
+            std::cout << ", ";
+        }
+        std::cout << "\n";
+
+        state.current_vars.clear();
+        state.relation_name.clear();
+        state.current_attributes.clear();
+        state.current_relate = relate_t{};
+      }
     };
 }
 }
