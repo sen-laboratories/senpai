@@ -101,6 +101,16 @@ namespace actions {
     struct attribute_t {
         std::string key;
         std::string value;
+
+        bool operator==(const attribute_t& a) const
+        {
+            return (key == a.key && value == a.value);
+        }
+
+        bool operator!=(const attribute_t& a) const
+        {
+            return (key != a.key || value != a.value);
+        }
     };
 
     struct relation_t {
@@ -446,5 +456,5 @@ namespace actions {
             state.current_relate = relate_t{};
         }
     };
-}
-}
+}   // namespace actions
+}   // namespace sen

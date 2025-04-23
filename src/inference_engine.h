@@ -27,7 +27,7 @@ private:
     bool matches_context(const std::string& rule_context, const std::string& query_context) const;
     std::string resolve_alias(const std::string& relation) const;
     bool matches_condition(const actions::condition_t& condition,
-                          const std::map<std::string, std::string>& bindings, int depth) const;
+                          std::map<std::string, std::string>& bindings, int depth) const;
     std::vector<fact_t> apply_rule(const actions::rule_t& rule, int max_depth) const;
 };
 } // namespace sen

@@ -45,7 +45,7 @@ int main() {
         std::string relation_to   = rel.var2;
         auto relation_attrs= rel.attributes;
 
-        std::cout << "New relation: " << relation_name << "("
+        std::cout << "Creating SEN relation: " << relation_name << "("
                   << relation_from << " -> " << relation_to << ")";
 
         if (!relation_attrs.empty()) {
