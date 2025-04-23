@@ -14,7 +14,7 @@ int main() {
         }
         CONTEXT application/person {
             RULE father_of {
-                IF (A ~genealogy B AND role="parent of" AND A has gender="male")
+                IF (A ~genealogy B AND role="parent of" AND A HAS gender="male")
                 THEN RELATE(A, B, "genealogy") WITH label="father of"
             }
         }

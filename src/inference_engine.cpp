@@ -31,18 +31,15 @@ void InferenceEngine::parse(const std::string& dsl) {
     } catch (const tao::pegtl::parse_error& e) {
         std::cerr << "Parse error: " << e.what() << "\n";
         std::cerr << "At position: " << e.positions()[0].byte << "\n";
-       // std::cerr << "Near: " << input.substr(e.positions()[0].byte, 20) << "\n";
         throw;
     }
 }
 
 void InferenceEngine::add_fact(const std::string& relation, const std::string& entity1, const std::string& entity2,
-                               const std::vector<sen::actions::attribute_t>& attributes) {
-
+                               const std::vector<actions::attribute_t>& attributes) {
     std::string resolved_relation = resolve_alias(relation);
     facts.push_back({entity1, resolved_relation, entity2, attributes});
-
-    std::cout << "Added fact: " << relation << "(" << entity1 << ", " << entity2 << ")";
+    std::cout << "Added fact: " << resolved_relation << "(" << entity1 << ", " << entity2 << ")";
     if (!attributes.empty()) {
         std::cout << " WITH ";
         for (size_t i = 0; i < attributes.size(); ++i) {
@@ -58,9 +55,9 @@ void InferenceEngine::add_predicate(const std::string& entity, const std::string
     std::cout << "Added predicate: " << entity << " has " << key << "=\"" << value << "\"\n";
 }
 
-std::vector<sen::actions::relation_t> InferenceEngine::infer(const std::string& context, int max_depth,
-                                                                int max_iterations) {
-    std::vector<sen::actions::relation_t> new_relations;
+std::vector<actions::relation_t> InferenceEngine::infer(const std::string& context, int max_depth,
+                                                       int max_iterations) {
+    std::vector<actions::relation_t> new_relations;
     std::cout << "Starting inference: context=" << context << ", max_depth=" << max_depth
               << ", iterations=" << max_iterations << "\n";
 
@@ -108,14 +105,14 @@ std::string InferenceEngine::resolve_alias(const std::string& relation) const {
     return resolved;
 }
 
-bool InferenceEngine::matches_condition(const sen::actions::condition_t& condition,
+bool InferenceEngine::matches_condition(const actions::condition_t& condition,
                                        const std::map<std::string, std::string>& bindings, int depth) const {
     if (depth <= 0) return false;
 
     return std::visit(
         [&](const auto& cond) {
             using T = std::decay_t<decltype(cond)>;
-            if constexpr (std::is_same_v<T, sen::actions::relation_t>) {
+            if constexpr (std::is_same_v<T, actions::relation_t>) {
                 std::cout << "      Checking relation: " << cond.var1 << " ~" << cond.relation_name << " " << cond.var2 << "\n";
                 std::string resolved_relation = resolve_alias(cond.relation_name);
                 for (const auto& fact : facts) {
@@ -141,7 +138,7 @@ bool InferenceEngine::matches_condition(const sen::actions::condition_t& conditi
                     }
                 }
                 return false;
-            } else if constexpr (std::is_same_v<T, sen::actions::predicate_t>) {
+            } else if constexpr (std::is_same_v<T, actions::predicate_t>) {
                 std::cout << "      Checking predicate: " << cond.var << " has " << cond.key << "=\"" << cond.value << "\"\n";
                 auto it = bindings.find(cond.var);
                 if (it == bindings.end()) return false;
@@ -159,35 +156,30 @@ bool InferenceEngine::matches_condition(const sen::actions::condition_t& conditi
         condition.value);
 }
 
-std::vector<sen::actions::relation_t> InferenceEngine::apply_rule(const sen::actions::rule_t& rule,
-                                                                  int max_depth) const {
-    std::vector<sen::actions::relation_t> new_relations;
+std::vector<actions::relation_t> InferenceEngine::apply_rule(const actions::rule_t& rule, int max_depth) const {
+    std::vector<actions::relation_t> new_relations;
     std::cout << "      Checking conditions for rule: " << rule.name << "\n";
-
-    if (rule.conditions.empty()) {
-        std::cout << "no conditions defined for rule " << rule.name << ", aborting.\n";
-        return new_relations;
-    }
+    if (rule.conditions.empty()) return new_relations;
 
     std::map<std::string, std::string> bindings;
-
     auto check_conditions = [&](const auto& self, size_t cond_idx, auto& bindings, int depth) -> bool {
         if (cond_idx >= rule.conditions.size()) return true;
         if (depth <= 0) return false;
 
-        return matches_condition(rule.conditions[cond_idx], bindings, depth) &&
-               self(self, cond_idx + 1, bindings, depth - 1);
+        if (matches_condition(rule.conditions[cond_idx], bindings, depth)) {
+            return self(self, cond_idx + 1, bindings, depth - 1);
+        }
+        return false;
     };
 
-    std::cout << "      Bindings: ";
-    for (const auto& [var, val] : bindings) {
-        std::cout << var << "=" << val << " ";
-    }
-    std::cout << "\n";
-
     if (check_conditions(check_conditions, 0, bindings, max_depth)) {
+        std::cout << "      Bindings: ";
+        for (const auto& [var, val] : bindings) {
+            std::cout << var << "=" << val << " ";
+        }
+        std::cout << "\n";
         const auto& conclusion = rule.conclusion;
-        sen::actions::relation_t new_relation;
+        actions::relation_t new_relation;
         new_relation.var1 = bindings[conclusion.var1];
         new_relation.var2 = bindings[conclusion.var2];
         new_relation.relation_name = resolve_alias(conclusion.relation_name);
