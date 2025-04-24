@@ -5,11 +5,13 @@
 int main() {
     std::string dsl = R"dsl(
         USE relation/family-link AS genealogy
-        USE relation/book-quote AS quotes
+        USE relation/book-quote AS quotation
+        USE relation/locality AS locality
+
         CONTEXT text/* {
             RULE quoted_by {
-                IF (A ~quotes B)
-                THEN RELATE(B, A, "quotes") WITH type="inverse", label="quoted by"
+                IF (A ~quotation B)
+                THEN RELATE(B, A, "quotation") WITH type="inverse", label="quoted by"
             }
         }
         CONTEXT application/person {
@@ -30,6 +32,12 @@ int main() {
                 THEN RELATE(A, B, "genealogy") WITH label="daughter of"
             }
         }
+        CONTEXT entity/place {
+            RULE contained_location {
+                IF (A ~locality B AND role="located in" AND B ~locality C AND role="located in")
+                THEN RELATE(A, C, "locality") WITH role="located in")
+            }
+        }
         CONTEXT */* {
             RULE transitive {
                 IF (A ~genealogy B AND role="parent of" AND B ~genealogy C AND role="parent of")
@@ -41,12 +49,19 @@ int main() {
     sen::InferenceEngine engine;
     engine.parse(dsl);
 
-    engine.add_fact("genealogy", "John", "Mary", {{"role", "parent of"}});
-    engine.add_fact("genealogy", "Mary", "Bob", {{"role", "parent of"}});
-    engine.add_fact("quotes", "Book1", "Quote1", {});
+    // family example
     engine.add_predicate("John", "gender", "male");
     engine.add_predicate("Mary", "gender", "female");
     engine.add_predicate("Bob", "gender", "male");
+    engine.add_fact("genealogy", "John", "Mary", {{"role", "parent of"}});
+    engine.add_fact("genealogy", "Mary", "Bob", {{"role", "parent of"}});
+
+    // quotation example
+    engine.add_fact("quotes", "Book1", "Quote1", {});
+
+    // locality example
+    engine.add_fact("locality", "Vienna", "Austria", {{"role", "located in"}});
+    engine.add_fact("locality", "Austria", "Europe", {{"role", "located in"}});
 
     std::cout << "First run (context */*, max_depth=2, iterations=2):\n";
     auto new_relations = engine.infer("*/*", 2, 2);
