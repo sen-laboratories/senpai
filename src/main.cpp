@@ -17,6 +17,18 @@ int main() {
                 IF (A ~genealogy B AND role="parent of" AND A HAS gender="male")
                 THEN RELATE(A, B, "genealogy") WITH label="father of"
             }
+            RULE child_of {
+                IF (A ~genealogy B AND role="parent of")
+                THEN RELATE(B, A, "genealogy") WITH label="child of"
+            }
+            RULE son_of {
+                IF (A ~genealogy B AND role="parent of" AND B HAS gender="male")
+                THEN RELATE(B, A, "genealogy") WITH label="son of"
+            }
+            RULE daughter_of {
+                IF (A ~genealogy B AND role="parent of" AND B HAS gender="female")
+                THEN RELATE(A, B, "genealogy") WITH label="daughter of"
+            }
         }
         CONTEXT */* {
             RULE transitive {
@@ -30,11 +42,11 @@ int main() {
     engine.parse(dsl);
 
     engine.add_fact("genealogy", "John", "Mary", {{"role", "parent of"}});
-    engine.add_fact("genealogy", "Mary", "Alice", {{"role", "parent of"}});
+    engine.add_fact("genealogy", "Mary", "Bob", {{"role", "parent of"}});
     engine.add_fact("quotes", "Book1", "Quote1", {});
     engine.add_predicate("John", "gender", "male");
     engine.add_predicate("Mary", "gender", "female");
-    engine.add_predicate("Alice", "gender", "female");
+    engine.add_predicate("Bob", "gender", "male");
 
     std::cout << "First run (context */*, max_depth=2, iterations=2):\n";
     auto new_relations = engine.infer("*/*", 2, 2);
