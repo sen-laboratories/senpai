@@ -1,3 +1,8 @@
+/*
+ * SPDX-License-Identifier: MIT
+ * SPDX-FileCopyrightText: 2025-2026 SEN Labs e.U.
+ */
+
 #include "inference_engine.h"
 #include <iostream>
 #include <algorithm>
